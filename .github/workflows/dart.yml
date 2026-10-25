@@ -1,42 +1,49 @@
-name: iOS-ipa-build
+name: Build Non-JIT Playable Vita3K iOS App
 
 on:
   workflow_dispatch:
 
 jobs:
-  build-ios:
-    name: 🎉 iOS Build
-    runs-on: macos-latest
+  build_ios:
+    name: Native Xcode iOS Compile
+    runs-on: macos-14
+
     steps:
-      - uses: actions/checkout@v3
-
-      - uses: subosito/flutter-action@v2
+      - name: Checkout Code Base
+        uses: actions/checkout@v4
         with:
-          channel: 'stable'
-          architecture: x64
-      - run: flutter pub get
-      
+          repository: 'vion-app-org/Vion'
+          ref: 'native-ios-port'
+          submodules: recursive
 
-      - run: pod repo update
-        working-directory: ios
+      - name: Configure CMake for Apple Xcode
+        run: |
+          cmake -B build_ios \
+            -G "Xcode" \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT=iphoneos \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DENABLE_CODE_SIGNING=OFF \
+            -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO \
+            -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY="" \
+            -DCMAKE_CXX_FLAGS="-O3 -flto -DNDEBUG" \
+            -DCMAKE_C_FLAGS="-O3 -flto -DNDEBUG"
 
-      - run: flutter build ios --release --no-codesign
+      - name: Execute Xcode Build Compilation
+        run: |
+          cmake --build build_ios --config Release -- -sdk iphoneos
 
-      - run: mkdir Payload
-        working-directory: build/ios/iphoneos
+      - name: Construct Unsigned Extension Package
+        run: |
+          mkdir -p build_ios/ipa/Payload
+          cp -r build_ios/Release-iphoneos/Vion.app build_ios/ipa/Payload/ 2>/dev/null || cp -r build_ios/bin/Release-iphoneos/Vion.app build_ios/ipa/Payload/ || cp -r build_ios/Vion.app build_ios/ipa/Payload/
+          cd build_ios/ipa
+          zip -9 -r ../../Vion_Vita3K_NoJIT_Interpreter.ipa Payload
+          cd ../..
 
-      - run: mv Runner.app/ Payload
-        working-directory: build/ios/iphoneos
-
-      - name: Zip output
-        run: zip -qq -r -9 FlutterIpaExport.ipa Payload
-        working-directory: build/ios/iphoneos
-
-      - name: Upload binaries to release
-        uses: svenstaro/upload-release-action@v2
+      - name: Export Executable Asset
+        uses: actions/upload-artifact@v4
         with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: build/ios/iphoneos/FlutterIpaExport.ipa
-          tag: v1.0
-          overwrite: true
-          body: "This is first release"
+          name: Non-JIT-Vita3K-IPA
+          path: Vion_Vita3K_NoJIT_Interpreter.ipa
